@@ -1,0 +1,1115 @@
+PROCEDURE pgen_where (aud_type_p       IN     NUMBER,
+                         tr_no_b_p        IN     VARCHAR2,
+                         tr_no_e_p        IN     VARCHAR2,
+                         tr_word_p        IN     VARCHAR2,
+                         owner_name_p     IN     VARCHAR2,
+                         class_p          IN     VARCHAR2,
+                         first_c_p        IN     VARCHAR2,
+                         last_c_p         IN     VARCHAR2,
+                         fslast_p         IN     VARCHAR2,
+                         read_word_c_p    IN     NUMBER,
+                         read_word_p      IN     VARCHAR2,
+                         sound_word_c_p   IN     NUMBER,
+                         sound_word_p     IN     VARCHAR2,
+                         pic_code_p       IN     VARCHAR2,
+                         pic_andor_p      IN     NUMBER,
+                         sound_code_p     IN     VARCHAR2,
+                         sound_andor_p    IN     NUMBER,
+                         scent_code_p     IN     VARCHAR2,
+                         scent_andor_p    IN     NUMBER,
+                         condition_p         OUT VARCHAR2,
+                         where_p             OUT VARCHAR2,
+                         status_p            OUT VARCHAR2)
+   IS
+      /* aud_type_p ==> 1=trademark, 2=medical, 31=special(gov), 32=special(inter), 33=special(wide), 34=special(gi) */
+      /* status_p = null  Success */
+      /*         <> null  Fail */
+      spec_type_v   VARCHAR2 (1);
+      where_v       VARCHAR2 (32767) := NULL;
+      q             VARCHAR2 (1) := CHR (39);
+      tmp_v         NUMBER;
+      tmp1_v        VARCHAR2 (4000);
+      tmp2_v        VARCHAR2 (4000);
+      tmp3_v        VARCHAR2 (4000);
+      ctmp1_v       VARCHAR2 (4000);
+      i             NUMBER := 1;
+      j             NUMBER := 0;
+   BEGIN
+      condition_p := NULL;
+      status_p := NULL;
+
+      IF aud_type_p NOT IN (1, 2, 31, 32, 33, 34)
+      THEN
+         RAISE excep1;
+      END IF;
+
+      IF aud_type_p IN (1)
+      THEN
+         IF (    tr_no_b_p IS NULL
+             AND tr_no_e_p IS NULL
+             AND TRIM (tr_word_p) IS NULL
+             AND TRIM (owner_name_p) IS NULL
+             AND first_c_p IS NULL
+             AND last_c_p IS NULL
+             AND fslast_p IS NULL
+             AND TRIM (read_word_p) IS NULL
+             AND TRIM (sound_word_p) IS NULL
+             AND pic_code_p IS NULL
+             AND sound_code_p IS NULL
+             AND scent_code_p IS NULL
+             AND class_p IS NULL)
+         THEN
+            status_p := 'โปรดระบุเงื่อนไข';
+            RAISE excep;
+         END IF;
+
+         IF     (   first_c_p IS NOT NULL
+                 OR last_c_p IS NOT NULL
+                 OR fslast_p IS NOT NULL
+                 OR TRIM (read_word_p) IS NOT NULL
+                 OR TRIM (sound_word_p) IS NOT NULL
+                 OR pic_code_p IS NOT NULL
+                 OR sound_code_p IS NOT NULL
+                 OR scent_code_p IS NOT NULL)
+            AND class_p IS NULL
+         THEN
+            status_p := 'โปรดระบุจำพวก';
+            RAISE excep;
+         END IF;
+
+         IF class_p IS NOT NULL
+         THEN
+            IF exs.fcntclass (class_p) < 1
+            THEN
+               status_p :=
+                  'โปรดเงื่อนไขจำพวก ไม่ถูกต้อง';
+               RAISE excep;
+            END IF;
+         END IF;
+
+         IF class_p IS NOT NULL
+         THEN
+            where_v := 'tr_no >= 224922 and ';
+         END IF;
+
+         IF tr_no_b_p IS NOT NULL AND tr_no_e_p IS NOT NULL
+         THEN
+            where_v :=
+                  where_v
+               || 'tr_no >= '
+               || TO_NUMBER (tr_no_b_p)
+               || ' and tr_no <= '
+               || TO_NUMBER (tr_no_e_p)
+               || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่คำขอ '
+               || tr_no_b_p
+               || ' ถึง '
+               || tr_no_e_p
+               || CHR (10);
+         ELSIF tr_no_b_p IS NOT NULL AND tr_no_e_p IS NULL
+         THEN
+            where_v :=
+               where_v || 'tr_no = ' || TO_NUMBER (tr_no_b_p) || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่คำขอ '
+               || tr_no_b_p
+               || CHR (10);
+         ELSIF tr_no_b_p IS NULL AND tr_no_e_p IS NOT NULL
+         THEN
+            where_v :=
+               where_v || 'tr_no = ' || TO_NUMBER (tr_no_e_p) || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่คำขอ '
+               || tr_no_e_p
+               || CHR (10);
+         END IF;
+
+         IF TRIM (tr_word_p) IS NOT NULL
+         THEN
+            where_v :=
+                  where_v
+               || 'tr_no in (select tr_no from rpst_search_word where tr_word like '
+               || q
+               || '%'
+               || TRIM (tr_word_p)
+               || '%'
+               || q
+               || ') and ';
+            condition_p :=
+                  condition_p
+               || 'เครื่องหมาย '
+               || tr_word_p
+               || CHR (10);
+         END IF;
+
+         IF TRIM (owner_name_p) IS NOT NULL
+         THEN
+            where_v :=
+                  where_v
+               || 'tr_no in (select tr_no from rpst_tr_owner where replace(owner_name,chr(32),null) like '
+               || q
+               || '%'
+               || REPLACE (owner_name_p, ' ', NULL)
+               || '%'
+               || q
+               || ') and ';
+            condition_p :=
+                  condition_p
+               || 'ชื่อเจ้าของ '
+               || owner_name_p
+               || CHR (10);
+         END IF;
+
+         IF class_p IS NOT NULL
+         THEN
+            tmp1_v := exs.finscomma (TRIM (class_p), 2);
+            where_v :=
+                  where_v
+               || 'tr_no in (select tr_no from rpst_tr_class where class_code in ('
+               || tmp1_v
+               || ')) and ';
+            condition_p :=
+               condition_p || 'จำพวก ' || class_p || CHR (10);
+         END IF;
+
+         IF    first_c_p IS NOT NULL
+            OR last_c_p IS NOT NULL
+            OR fslast_p IS NOT NULL
+            OR TRIM (read_word_p) IS NOT NULL
+            OR TRIM (sound_word_p) IS NOT NULL
+         THEN
+            tmp1_v := NULL;
+            ctmp1_v := NULL;
+
+            IF first_c_p IS NOT NULL
+            THEN
+               tmp1_v :=
+                  tmp1_v || 'first_c = ' || q || first_c_p || q || ' and ';
+               ctmp1_v :=
+                  ctmp1_v || 'อักษรแรก ' || first_c_p || ' ';
+            END IF;
+
+            IF last_c_p IS NOT NULL
+            THEN
+               IF last_c_p IN
+                     ('อาน', 'แอน', 'โอน', 'ออน')
+               THEN
+                  tmp1_v :=
+                        tmp1_v
+                     || 'last_c in ('
+                     || q
+                     || 'อาน'
+                     || q
+                     || ','
+                     || q
+                     || 'แอน'
+                     || q
+                     || ','
+                     || q
+                     || 'โอน'
+                     || q
+                     || ','
+                     || q
+                     || 'ออน'
+                     || q
+                     || ') and ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงท้าย ('
+                     || q
+                     || 'อาน'
+                     || q
+                     || ','
+                     || q
+                     || 'แอน'
+                     || q
+                     || ','
+                     || q
+                     || 'โอน'
+                     || q
+                     || ','
+                     || q
+                     || 'ออน'
+                     || q
+                     || ') ';
+               ELSE
+                  tmp1_v :=
+                     tmp1_v || 'last_c = ' || q || last_c_p || q || ' and ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงท้าย '
+                     || last_c_p
+                     || ' ';
+               END IF;
+            END IF;
+
+            IF fslast_p IS NOT NULL
+            THEN
+               tmp1_v :=
+                  tmp1_v || 'fslast = ' || q || fslast_p || q || ' and ';
+               ctmp1_v :=
+                     ctmp1_v
+                  || 'เสียงท้าย(อีน) '
+                  || fslast_p
+                  || ' ';
+            END IF;
+
+            IF     TRIM (read_word_p) IS NOT NULL
+               AND read_word_c_p IN (1, 2, 3, 4)
+            THEN
+               IF read_word_c_p = 1
+               THEN
+                  tmp2_v := TRIM (read_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 2
+               THEN
+                  tmp2_v := '%' || TRIM (read_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(บางส่วนเหมือน) '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 3
+               THEN
+                  tmp2_v := TRIM (read_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(ส่วนหน้าเหมือน) '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 4
+               THEN
+                  tmp2_v := '%' || TRIM (read_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(ส่วนท้ายเหมือน) '
+                     || read_word_p
+                     || ' ';
+               END IF;
+
+               --          tmp1_v := tmp1_v||'read_word like '||q||tmp2_v||q||' and ';
+               tmp1_v :=
+                  tmp1_v || 'tr_word like ' || q || tmp2_v || q || ' and ';
+            END IF;
+
+            IF     TRIM (sound_word_p) IS NOT NULL
+               AND sound_word_c_p IN (1, 2, 3, 4)
+            THEN
+               IF sound_word_c_p = 1
+               THEN
+                  tmp2_v := TRIM (sound_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์ '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 2
+               THEN
+                  tmp2_v := '%' || TRIM (sound_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(บางส่วนเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 3
+               THEN
+                  tmp2_v := TRIM (sound_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(ส่วนหน้าเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 4
+               THEN
+                  tmp2_v := '%' || TRIM (sound_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(ส่วนท้ายเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               END IF;
+
+               tmp1_v :=
+                  tmp1_v || 'sound_word like ' || q || tmp2_v || q || ' and ';
+            END IF;
+
+            tmp_v := INSTR (tmp1_v, ' and', -1);
+            tmp1_v := SUBSTR (tmp1_v, 1, tmp_v - 1);
+            where_v :=
+                  where_v
+               || 'tr_no in (select tr_no from rpst_search_word where '
+               || tmp1_v
+               || ') and ';
+            condition_p := condition_p || ctmp1_v || CHR (10);
+         END IF;
+
+         IF    TRIM (pic_code_p) IS NOT NULL
+            OR TRIM (sound_code_p) IS NOT NULL
+            OR TRIM (scent_code_p) IS NOT NULL
+         THEN
+            tmp1_v := NULL;
+            ctmp1_v := NULL;
+
+            IF TRIM (pic_code_p) IS NOT NULL
+            THEN
+               IF pic_andor_p = 2
+               THEN
+                  tmp2_v := exs.finscomma (TRIM (pic_code_p), 2);
+                  tmp1_v :=
+                        tmp1_v
+                     || 'select tr_no from rpst_search_mark where mark_type = '
+                     || q
+                     || '1'
+                     || q
+                     || ' and mark_code in ('
+                     || tmp2_v
+                     || ') intersect ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เครื่องหมายรูป(หรือ) '
+                     || pic_code_p
+                     || ' ';
+               ELSIF pic_andor_p = 1
+               THEN
+                  i := 1;
+                  j := 0;
+                  tmp2_v := TRIM (pic_code_p);
+
+                  LOOP
+                     j := INSTR (tmp2_v, ' ', i);
+
+                     IF TRIM (SUBSTR (tmp2_v, i, 1)) IS NOT NULL
+                     THEN
+                        IF i = 1
+                        THEN
+                           IF j <> 0
+                           THEN
+                              tmp3_v := SUBSTR (tmp2_v, i, j - i);
+                           ELSE
+                              tmp3_v := SUBSTR (tmp2_v, i, LENGTH (tmp2_v));
+                           END IF;
+                        ELSIF j <> 0
+                        THEN
+                           tmp3_v := SUBSTR (tmp2_v, i, j - i);
+                        ELSE
+                           tmp3_v := SUBSTR (tmp2_v, i, LENGTH (tmp2_v));
+                        END IF;
+
+                        tmp1_v :=
+                              tmp1_v
+                           || 'select tr_no from rpst_search_mark where mark_type = '
+                           || q
+                           || '1'
+                           || q
+                           || ' and mark_code = '
+                           || q
+                           || tmp3_v
+                           || q
+                           || ' intersect ';
+                     END IF;
+
+                     i := j + 1;
+                     EXIT WHEN j = 0;
+                  END LOOP;
+
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เครื่องหมายรูป(และ) '
+                     || pic_code_p
+                     || ' ';
+               END IF;
+            END IF;
+
+            IF TRIM (sound_code_p) IS NOT NULL
+            THEN
+               IF sound_andor_p = 2
+               THEN
+                  tmp2_v := exs.finscomma (TRIM (sound_code_p), 2);
+                  tmp1_v :=
+                        tmp1_v
+                     || 'select tr_no from rpst_search_mark where mark_type = '
+                     || q
+                     || '2'
+                     || q
+                     || ' and mark_code in ('
+                     || tmp2_v
+                     || ') intersect ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เครื่องหมายเสียง(หรือ) '
+                     || sound_code_p
+                     || ' ';
+               ELSIF sound_andor_p = 1
+               THEN
+                  i := 1;
+                  j := 0;
+                  tmp2_v := TRIM (sound_code_p);
+
+                  LOOP
+                     j := INSTR (tmp2_v, ' ', i);
+
+                     IF TRIM (SUBSTR (tmp2_v, i, 1)) IS NOT NULL
+                     THEN
+                        IF i = 1
+                        THEN
+                           IF j <> 0
+                           THEN
+                              tmp3_v := SUBSTR (tmp2_v, i, j - i);
+                           ELSE
+                              tmp3_v := SUBSTR (tmp2_v, i, LENGTH (tmp2_v));
+                           END IF;
+                        ELSIF j <> 0
+                        THEN
+                           tmp3_v := SUBSTR (tmp2_v, i, j - i);
+                        ELSE
+                           tmp3_v := SUBSTR (tmp2_v, i, LENGTH (tmp2_v));
+                        END IF;
+
+                        tmp1_v :=
+                              tmp1_v
+                           || 'select tr_no from rpst_search_mark where mark_type = '
+                           || q
+                           || '2'
+                           || q
+                           || ' and mark_code = '
+                           || q
+                           || tmp3_v
+                           || q
+                           || ' intersect ';
+                     END IF;
+
+                     i := j + 1;
+                     EXIT WHEN j = 0;
+                  END LOOP;
+
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เครื่องหมายเสียง(และ) '
+                     || sound_code_p
+                     || ' ';
+               END IF;
+            END IF;
+
+            IF TRIM (scent_code_p) IS NOT NULL
+            THEN
+               IF scent_andor_p = 2
+               THEN
+                  tmp2_v := exs.finscomma (TRIM (scent_code_p), 2);
+                  tmp1_v :=
+                        tmp1_v
+                     || 'select tr_no from rpst_search_mark where mark_type = '
+                     || q
+                     || '3'
+                     || q
+                     || ' and mark_code in ('
+                     || tmp2_v
+                     || ') intersect ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เครื่องหมายกลิ่น(หรือ) '
+                     || scent_code_p
+                     || ' ';
+               ELSIF scent_andor_p = 1
+               THEN
+                  i := 1;
+                  j := 0;
+                  tmp2_v := TRIM (scent_code_p);
+
+                  LOOP
+                     j := INSTR (tmp2_v, ' ', i);
+
+                     IF TRIM (SUBSTR (tmp2_v, i, 1)) IS NOT NULL
+                     THEN
+                        IF i = 1
+                        THEN
+                           IF j <> 0
+                           THEN
+                              tmp3_v := SUBSTR (tmp2_v, i, j - i);
+                           ELSE
+                              tmp3_v := SUBSTR (tmp2_v, i, LENGTH (tmp2_v));
+                           END IF;
+                        ELSIF j <> 0
+                        THEN
+                           tmp3_v := SUBSTR (tmp2_v, i, j - i);
+                        ELSE
+                           tmp3_v := SUBSTR (tmp2_v, i, LENGTH (tmp2_v));
+                        END IF;
+
+                        tmp1_v :=
+                              tmp1_v
+                           || 'select tr_no from rpst_search_mark where mark_type = '
+                           || q
+                           || '3'
+                           || q
+                           || ' and mark_code = '
+                           || q
+                           || tmp3_v
+                           || q
+                           || ' intersect ';
+                     END IF;
+
+                     i := j + 1;
+                     EXIT WHEN j = 0;
+                  END LOOP;
+
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เครื่องหมายกลิ่น(และ) '
+                     || scent_code_p
+                     || ' ';
+               END IF;
+            END IF;
+
+            tmp_v := INSTR (tmp1_v, ' intersect', -1);
+            tmp1_v := SUBSTR (tmp1_v, 1, tmp_v - 1);
+            where_v := where_v || 'tr_no in (' || tmp1_v || ') and ';
+            condition_p := condition_p || ctmp1_v || CHR (10);
+         END IF;
+      END IF;
+
+      IF aud_type_p IN (2)
+      THEN
+         IF (    tr_no_b_p IS NULL
+             AND tr_no_e_p IS NULL
+             AND TRIM (owner_name_p) IS NULL
+             AND first_c_p IS NULL
+             AND last_c_p IS NULL
+             AND fslast_p IS NULL
+             AND TRIM (read_word_p) IS NULL
+             AND TRIM (sound_word_p) IS NULL)
+         THEN
+            status_p := 'โปรดระบุเงื่อนไข';
+            RAISE excep;
+         END IF;
+
+         IF tr_no_b_p IS NOT NULL AND tr_no_e_p IS NOT NULL
+         THEN
+            where_v :=
+                  where_v
+               || 'med_no >= '
+               || q
+               || tr_no_b_p
+               || q
+               || ' and med_no <= '
+               || q
+               || tr_no_e_p
+               || q
+               || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่เครื่องหมาย '
+               || tr_no_b_p
+               || ' ถึง '
+               || tr_no_e_p
+               || CHR (10);
+         ELSIF tr_no_b_p IS NOT NULL AND tr_no_e_p IS NULL
+         THEN
+            where_v :=
+               where_v || 'med_no = ' || q || tr_no_b_p || q || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่เครื่องหมาย '
+               || tr_no_b_p
+               || CHR (10);
+         ELSIF tr_no_b_p IS NULL AND tr_no_e_p IS NOT NULL
+         THEN
+            where_v :=
+               where_v || 'med_no = ' || q || tr_no_e_p || q || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่เครื่องหมาย '
+               || tr_no_e_p
+               || CHR (10);
+         END IF;
+
+         IF TRIM (owner_name_p) IS NOT NULL
+         THEN
+            where_v :=
+                  where_v
+               || 'med_no in (select med_no from rpst_medical where replace(owner,chr(32),null) like '
+               || q
+               || '%'
+               || REPLACE (owner_name_p, ' ', NULL)
+               || '%'
+               || q
+               || ') and ';
+            condition_p :=
+                  condition_p
+               || 'ชื่อเจ้าของ '
+               || owner_name_p
+               || CHR (10);
+         END IF;
+
+         IF    first_c_p IS NOT NULL
+            OR last_c_p IS NOT NULL
+            OR fslast_p IS NOT NULL
+            OR TRIM (read_word_p) IS NOT NULL
+            OR TRIM (sound_word_p) IS NOT NULL
+         THEN
+            tmp1_v := NULL;
+            ctmp1_v := NULL;
+
+            IF first_c_p IS NOT NULL
+            THEN
+               tmp1_v :=
+                  tmp1_v || 'first_c = ' || q || first_c_p || q || ' and ';
+               ctmp1_v :=
+                  ctmp1_v || 'อักษรแรก ' || first_c_p || ' ';
+            END IF;
+
+            IF last_c_p IS NOT NULL
+            THEN
+               IF last_c_p IN
+                     ('อาน', 'แอน', 'โอน', 'ออน')
+               THEN
+                  tmp1_v :=
+                        tmp1_v
+                     || 'last_c in ('
+                     || q
+                     || 'อาน'
+                     || q
+                     || ','
+                     || q
+                     || 'แอน'
+                     || q
+                     || ','
+                     || q
+                     || 'โอน'
+                     || q
+                     || ','
+                     || q
+                     || 'ออน'
+                     || q
+                     || ') and ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงท้าย ('
+                     || q
+                     || 'อาน'
+                     || q
+                     || ','
+                     || q
+                     || 'แอน'
+                     || q
+                     || ','
+                     || q
+                     || 'โอน'
+                     || q
+                     || ','
+                     || q
+                     || 'ออน'
+                     || q
+                     || ') ';
+               ELSE
+                  tmp1_v :=
+                     tmp1_v || 'last_c = ' || q || last_c_p || q || ' and ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงท้าย '
+                     || last_c_p
+                     || ' ';
+               END IF;
+            END IF;
+
+            IF fslast_p IS NOT NULL
+            THEN
+               tmp1_v :=
+                  tmp1_v || 'fslast = ' || q || fslast_p || q || ' and ';
+               ctmp1_v :=
+                     ctmp1_v
+                  || 'เสียงท้าย(อีน) '
+                  || fslast_p
+                  || ' ';
+            END IF;
+
+            IF     TRIM (read_word_p) IS NOT NULL
+               AND read_word_c_p IN (1, 2, 3, 4)
+            THEN
+               IF read_word_c_p = 1
+               THEN
+                  tmp2_v := TRIM (read_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 2
+               THEN
+                  tmp2_v := '%' || TRIM (read_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(บางส่วนเหมือน) '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 3
+               THEN
+                  tmp2_v := TRIM (read_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(ส่วนหน้าเหมือน) '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 4
+               THEN
+                  tmp2_v := '%' || TRIM (read_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(ส่วนท้ายเหมือน) '
+                     || read_word_p
+                     || ' ';
+               END IF;
+
+               --          tmp1_v := tmp1_v||'read_word like '||q||tmp2_v||q||' and ';
+               tmp1_v :=
+                  tmp1_v || 'med_word like ' || q || tmp2_v || q || ' and ';
+            END IF;
+
+            IF     TRIM (sound_word_p) IS NOT NULL
+               AND sound_word_c_p IN (1, 2, 3, 4)
+            THEN
+               IF sound_word_c_p = 1
+               THEN
+                  tmp2_v := TRIM (sound_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์ '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 2
+               THEN
+                  tmp2_v := '%' || TRIM (sound_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(บางส่วนเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 3
+               THEN
+                  tmp2_v := TRIM (sound_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(ส่วนหน้าเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 4
+               THEN
+                  tmp2_v := '%' || TRIM (sound_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(ส่วนท้ายเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               END IF;
+
+               tmp1_v :=
+                  tmp1_v || 'sound_word like ' || q || tmp2_v || q || ' and ';
+            END IF;
+
+            tmp_v := INSTR (tmp1_v, ' and', -1);
+            tmp1_v := SUBSTR (tmp1_v, 1, tmp_v - 1);
+            where_v :=
+                  where_v
+               || 'med_no in (select med_no from rpst_medical_word where '
+               || tmp1_v
+               || ') and ';
+            condition_p := condition_p || ctmp1_v || CHR (10);
+         END IF;
+      END IF;
+
+      IF aud_type_p IN (31, 32, 33, 34)
+      THEN
+         IF aud_type_p = 31
+         THEN
+            spec_type_v := '1';
+         ELSIF aud_type_p = 32
+         THEN
+            spec_type_v := '2';
+         ELSIF aud_type_p = 33
+         THEN
+            spec_type_v := '3';
+         ELSE
+            spec_type_v := '4';
+         END IF;
+
+         IF (    tr_no_b_p IS NULL
+             AND tr_no_e_p IS NULL
+             AND TRIM (owner_name_p) IS NULL
+             AND first_c_p IS NULL
+             AND last_c_p IS NULL
+             AND fslast_p IS NULL
+             AND TRIM (read_word_p) IS NULL
+             AND TRIM (sound_word_p) IS NULL)
+         THEN
+            status_p := 'โปรดระบุเงื่อนไข';
+            RAISE excep;
+         END IF;
+
+         where_v :=
+            where_v || 'spec_type = ' || q || spec_type_v || q || ' and ';
+
+         IF tr_no_b_p IS NOT NULL AND tr_no_e_p IS NOT NULL
+         THEN
+            where_v :=
+                  where_v
+               || 'spec_no >= '
+               || q
+               || tr_no_b_p
+               || q
+               || ' and spec_no <= '
+               || q
+               || tr_no_e_p
+               || q
+               || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่เครื่องหมาย '
+               || tr_no_b_p
+               || ' ถึง '
+               || tr_no_e_p
+               || CHR (10);
+         ELSIF tr_no_b_p IS NOT NULL AND tr_no_e_p IS NULL
+         THEN
+            where_v :=
+               where_v || 'spec_no = ' || q || tr_no_b_p || q || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่เครื่องหมาย '
+               || tr_no_b_p
+               || CHR (10);
+         ELSIF tr_no_b_p IS NULL AND tr_no_e_p IS NOT NULL
+         THEN
+            where_v :=
+               where_v || 'spec_no = ' || q || tr_no_e_p || q || ' and ';
+            condition_p :=
+                  condition_p
+               || 'เลขที่เครื่องหมาย '
+               || tr_no_e_p
+               || CHR (10);
+         END IF;
+
+         IF TRIM (owner_name_p) IS NOT NULL
+         THEN
+            where_v :=
+                  where_v
+               || 'spec_no in (select spec_no from rpst_special where replace(owner,chr(32),null) like '
+               || q
+               || '%'
+               || REPLACE (owner_name_p, ' ', NULL)
+               || '%'
+               || q
+               || ') and ';
+            condition_p :=
+                  condition_p
+               || 'ชื่อเจ้าของ '
+               || owner_name_p
+               || CHR (10);
+         END IF;
+
+         IF    first_c_p IS NOT NULL
+            OR last_c_p IS NOT NULL
+            OR fslast_p IS NOT NULL
+            OR TRIM (read_word_p) IS NOT NULL
+            OR TRIM (sound_word_p) IS NOT NULL
+         THEN
+            tmp1_v := NULL;
+            ctmp1_v := NULL;
+
+            IF first_c_p IS NOT NULL
+            THEN
+               tmp1_v :=
+                  tmp1_v || 'first_c = ' || q || first_c_p || q || ' and ';
+               ctmp1_v :=
+                  ctmp1_v || 'อักษรแรก ' || first_c_p || ' ';
+            END IF;
+
+            IF last_c_p IS NOT NULL
+            THEN
+               IF last_c_p IN
+                     ('อาน', 'แอน', 'โอน', 'ออน')
+               THEN
+                  tmp1_v :=
+                        tmp1_v
+                     || 'last_c in ('
+                     || q
+                     || 'อาน'
+                     || q
+                     || ','
+                     || q
+                     || 'แอน'
+                     || q
+                     || ','
+                     || q
+                     || 'โอน'
+                     || q
+                     || ','
+                     || q
+                     || 'ออน'
+                     || q
+                     || ') and ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงท้าย ('
+                     || q
+                     || 'อาน'
+                     || q
+                     || ','
+                     || q
+                     || 'แอน'
+                     || q
+                     || ','
+                     || q
+                     || 'โอน'
+                     || q
+                     || ','
+                     || q
+                     || 'ออน'
+                     || q
+                     || ') ';
+               ELSE
+                  tmp1_v :=
+                     tmp1_v || 'last_c = ' || q || last_c_p || q || ' and ';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงท้าย '
+                     || last_c_p
+                     || ' ';
+               END IF;
+            END IF;
+
+            IF fslast_p IS NOT NULL
+            THEN
+               tmp1_v :=
+                  tmp1_v || 'fslast = ' || q || fslast_p || q || ' and ';
+               ctmp1_v :=
+                     ctmp1_v
+                  || 'เสียงท้าย(อีน) '
+                  || fslast_p
+                  || ' ';
+            END IF;
+
+            IF     TRIM (read_word_p) IS NOT NULL
+               AND read_word_c_p IN (1, 2, 3, 4)
+            THEN
+               IF read_word_c_p = 1
+               THEN
+                  tmp2_v := TRIM (read_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 2
+               THEN
+                  tmp2_v := '%' || TRIM (read_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(บางส่วนเหมือน) '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 3
+               THEN
+                  tmp2_v := TRIM (read_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(ส่วนหน้าเหมือน) '
+                     || read_word_p
+                     || ' ';
+               ELSIF read_word_c_p = 4
+               THEN
+                  tmp2_v := '%' || TRIM (read_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'คำเหมือนคล้าย(ส่วนท้ายเหมือน) '
+                     || read_word_p
+                     || ' ';
+               END IF;
+
+               --          tmp1_v := tmp1_v||'read_word like '||q||tmp2_v||q||' and ';
+               tmp1_v :=
+                  tmp1_v || 'spec_word like ' || q || tmp2_v || q || ' and ';
+            END IF;
+
+            IF     TRIM (sound_word_p) IS NOT NULL
+               AND sound_word_c_p IN (1, 2, 3, 4)
+            THEN
+               IF sound_word_c_p = 1
+               THEN
+                  tmp2_v := TRIM (sound_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์ '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 2
+               THEN
+                  tmp2_v := '%' || TRIM (sound_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(บางส่วนเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 3
+               THEN
+                  tmp2_v := TRIM (sound_word_p) || '%';
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(ส่วนหน้าเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               ELSIF sound_word_c_p = 4
+               THEN
+                  tmp2_v := '%' || TRIM (sound_word_p);
+                  ctmp1_v :=
+                        ctmp1_v
+                     || 'เสียงพ้องพยางค์(ส่วนท้ายเหมือน) '
+                     || sound_word_p
+                     || ' ';
+               END IF;
+
+               tmp1_v :=
+                  tmp1_v || 'sound_word like ' || q || tmp2_v || q || ' and ';
+            END IF;
+
+            tmp_v := INSTR (tmp1_v, ' and', -1);
+            tmp1_v := SUBSTR (tmp1_v, 1, tmp_v - 1);
+            where_v :=
+                  where_v
+               || 'spec_no in (select spec_no from rpst_special_word where spec_type = '
+               || q
+               || spec_type_v
+               || q
+               || ' and '
+               || tmp1_v
+               || ') and ';
+            condition_p := condition_p || ctmp1_v || CHR (10);
+         END IF;
+      END IF;
+
+      tmp_v := INSTR (where_v, ' and', -1);
+      where_v := SUBSTR (where_v, 1, tmp_v - 1);
+      tmp_v := INSTR (condition_p, CHR (10), -1);
+      condition_p := SUBSTR (condition_p, 1, tmp_v - 1);
+      where_p := where_v;
+   EXCEPTION
+      WHEN excep
+      THEN
+         NULL;
+      WHEN excep1
+      THEN
+         status_p :=
+            error01 || '(' || 'aud_type=' || TO_CHAR (aud_type_p) || ')';
+      WHEN excep2
+      THEN
+         status_p := error02;
+      WHEN OTHERS
+      THEN
+         status_p := SQLERRM;
+   END;
