@@ -1,0 +1,369 @@
+PROCEDURE pgen_sel (appid_p          IN     VARCHAR2,
+                       sel_type_p       IN     NUMBER,
+                       tr_no_p          IN     NUMBER,
+                       aud_type_p       IN     NUMBER,
+                       tr_no_b_p        IN     VARCHAR2,
+                       tr_no_e_p        IN     VARCHAR2,
+                       tr_word_p        IN     VARCHAR2,
+                       owner_name_p     IN     VARCHAR2,
+                       class_p          IN     VARCHAR2,
+                       first_c_p        IN     VARCHAR2,
+                       last_c_p         IN     VARCHAR2,
+                       fslast_p         IN     VARCHAR2,
+                       read_word_c_p    IN     NUMBER,
+                       read_word_p      IN     VARCHAR2,
+                       sound_word_c_p   IN     NUMBER,
+                       sound_word_p     IN     VARCHAR2,
+                       pic_code_p       IN     VARCHAR2,
+                       pic_andor_p      IN     NUMBER,
+                       sound_code_p     IN     VARCHAR2,
+                       sound_andor_p    IN     NUMBER,
+                       scent_code_p     IN     VARCHAR2,
+                       scent_andor_p    IN     NUMBER,
+                       condition_p         OUT VARCHAR2,
+                       select_p            OUT CLOB,
+                       status_p            OUT VARCHAR2)
+   IS
+      PRAGMA AUTONOMOUS_TRANSACTION;
+      /* aud_type_p ==> 1=trademark, 2=medical, 31=special(gov), 32=special(inter), 33=special(wide), 34=special(gi) */
+      /* status_p = null  Success */
+      /*         <> null  Fail */
+      spec_type_v     VARCHAR2 (100) := NULL;
+      where_v         VARCHAR2 (32767) := NULL;
+      condition_v     VARCHAR2 (4000) := NULL;
+      status_v        VARCHAR2 (4000) := NULL;
+      select2_v       VARCHAR2 (32767);
+      str_v           VARCHAR2 (32767);
+      ftr_word_v      VARCHAR2 (200);
+      fowner_v        VARCHAR2 (200);
+      fscan_sound_v   VARCHAR2 (200);
+      fscan_pic_v     VARCHAR2 (200);
+
+      select_sel_type_3 CLOB := '';
+   BEGIN
+      condition_p := NULL;
+      select_p := NULL;
+      status_p := NULL;
+
+      IF tr_no_p IS NULL OR aud_type_p NOT IN (1, 2, 31, 32, 33, 34)
+      THEN
+         RAISE excep1;
+      END IF;
+
+      exs.pgen_where (aud_type_p,
+                      tr_no_b_p,
+                      tr_no_e_p,
+                      tr_word_p,
+                      owner_name_p,
+                      class_p,
+                      first_c_p,
+                      last_c_p,
+                      fslast_p,
+                      read_word_c_p,
+                      read_word_p,
+                      sound_word_c_p,
+                      sound_word_p,
+                      pic_code_p,
+                      pic_andor_p,
+                      sound_code_p,
+                      sound_andor_p,
+                      scent_code_p,
+                      scent_andor_p,
+                      condition_v,
+                      where_v,
+                      status_v);
+
+      IF status_v IS NOT NULL
+      THEN
+         status_p := 'pgen_where ' || status_v;
+         RAISE excep;
+      END IF;
+
+      condition_p := condition_v;
+
+      IF sel_type_p = 1
+      THEN
+         select2_v :=
+                'select /*+ INDEX(aa exst_select_in1) */ aud_type,tr_word,class_code,tr_no,dtr_no,owner_name,status_code,sound_flag,three_d_flag,colorgrp_flag,sel_aud,scan_path,scan_file,sound_path,sound_file,class_code1 from exst_select aa ';
+--              'select /*+ INDEX(aa exst_select_in1) */ aud_type,tr_word,class_code,mtr_no,dtr_no,owner_name,status_code,sound_flag,three_d_flag,colorgrp_flag,sel_aud,scan_path,scan_file,sound_path,sound_file,class_code1 from exst_select aa ';
+      ELSE
+         select2_v :=
+            'select /*+ INDEX(aa exst_select_in2) */ aud_type,tr_word,class_code,tr_no,dtr_no,owner_name,status_code,sound_flag,three_d_flag,colorgrp_flag,sel_aud,scan_path,scan_file,sound_path,sound_file,class_code1 from exst_select aa ';
+      END IF;
+
+      select2_v :=
+            select2_v
+         || 'where appid = '
+         || CHR (39)
+         || appid_p
+         || CHR (39)
+         || ' and mtr_no = '
+         || TO_CHAR (tr_no_p);
+
+      IF aud_type_p IN (1)
+      THEN
+      -- Add 2560, Act59
+         IF sel_type_p IN (1, 3)
+         THEN
+            ftr_word_v := 'rps.ftrword(to_char(tr_no),1) tr_word,';
+            fowner_v := 'rps.fowner(tr_no,12) owner_name,';
+            fscan_sound_v :=
+               'ctl.fscan_file(21,to_char(tr_no),2) sound_path,ctl.fscan_file(21,to_char(tr_no),3) sound_file,';
+            fscan_pic_v := 'null scan_path,null scan_file,';
+         ELSE
+            ftr_word_v := 'null tr_word,';
+            fowner_v := 'null owner_name,';
+            fscan_sound_v := 'null sound_path,null sound_file,';
+            fscan_pic_v :=
+                  'ctl.fscan_file('
+               || TO_CHAR (aud_type_p)
+               || ',to_char(tr_no),2) scan_path,ctl.fscan_file('
+               || TO_CHAR (aud_type_p)
+               || ',to_char(tr_no),3) scan_file,';
+         END IF;
+
+         select_p :=
+               'select '
+            || TO_CHAR (aud_type_p)
+            || ' aud_type,tr_word,class_code,tr_no,dtr_no,owner_name,status_code,sound_flag,three_d_flag,colorgrp_flag,sel_aud,scan_path,scan_file,sound_path,sound_file,class_code1 from ('
+            || 'select '
+            ||  --                  'rps.ftrword(to_char(tr_no),1) tr_word,'||
+              ftr_word_v
+            || 'rps.fclass(tr_no,6) class_code,tr_no,'
+            || 'rps.ftr_no(tr_no) dtr_no,'
+            ||         --                  'rps.fowner(tr_no,1) owner_name,'||
+              fowner_v
+            || 'status_code,sound_flag,'
+            || 'three_d_flag,colorgrp_flag,exs.fsel_aud('
+            || TO_CHAR (tr_no_p)
+            || ',tr_no,1) sel_aud,'
+            || --                  'ctl.fscan_file('||to_char(aud_type_p)||',to_char(tr_no),2) scan_path,ctl.fscan_file('||to_char(aud_type_p)||',to_char(tr_no),3) scan_file,'||
+              fscan_pic_v
+            || --                  'ctl.fscan_file(21,to_char(tr_no),2) sound_path,ctl.fscan_file(21,to_char(tr_no),3) sound_file,'||
+              fscan_sound_v
+            || 'to_number(rps.fclass(tr_no,4)) class_code1 from rpst_trademark ';
+--         select_p := select_p || 'where ' || where_v; comment act59
+
+        -- Add 2560, Act59
+         IF sel_type_p = 3
+         THEN
+             dbms_output.put_line('before : ' || select_p);
+             select_sel_type_3 := select_sel_type_3 || 'where ' || where_v;
+             select_p := select_p || ' where 1=1 and tr_no in (select distinct smark.tr_no from rpst_search_mark smark where smark.tr_no in (select tr_no from rpst_trademark where ' || where_v || ') and smark.mark_type = ' || CHR (39) || '2' || CHR (39) || ') ';
+             select_sel_type_3 := select_p || ' ) ';
+         ELSE
+             select_p := select_p || 'where ' || where_v;
+         END IF;
+        --
+
+         IF sel_type_p = 1
+         THEN
+            select2_v :=
+                  select2_v
+               || ' order by appid,nlssort(tr_word,'
+               || CHR (39)
+               || 'NLS_SORT=THAI_DICTIONARY'
+               || CHR (39)
+               || '),class_code1,tr_no';
+            select_p :=
+                  select_p
+               || ') order by nlssort(tr_word,'
+               || CHR (39)
+               || 'NLS_SORT=THAI_DICTIONARY'
+               || CHR (39)
+               || '),class_code1,tr_no';
+         ELSIF sel_type_p = 2
+         THEN
+            select2_v := select2_v || ' order by appid,class_code1,tr_no';
+            select_p := select_p || ') order by class_code1,tr_no';
+         END IF;
+      END IF;
+
+      IF aud_type_p IN (2)
+      THEN
+         select_p :=
+               'select '
+            || TO_CHAR (aud_type_p)
+            || ' aud_type,tr_word,class_code,tr_no,dtr_no,owner_name,status_code,sound_flag,three_d_flag,colorgrp_flag,sel_aud,scan_path,scan_file,sound_path,sound_file,class_code1 from ('
+            || 'select '
+            || 'rps.ftrword(med_no,2) tr_word,'
+            || CHR (39)
+            || 'เภสัชสากล'
+            || CHR (39)
+            || ' class_code,null tr_no,'
+            || 'med_no dtr_no,'
+            || 'owner owner_name,status_code,chr(48) sound_flag,'
+            || 'chr(48) three_d_flag,chr(48) colorgrp_flag,exs.fsel_aud('
+            || TO_CHAR (tr_no_p)
+            || ',med_no,2) sel_aud,'
+            || 'null scan_path,null scan_file,'
+            || 'null sound_path,null sound_file,'
+            || 'null class_code1 from rpst_medical ';
+         select_p := select_p || 'where ' || where_v || ' ';
+
+         IF sel_type_p = 1
+         THEN
+            select2_v :=
+                  select2_v
+               || ' order by appid,nlssort(tr_word,'
+               || CHR (39)
+               || 'NLS_SORT=THAI_DICTIONARY'
+               || CHR (39)
+               || '),class_code1,tr_no,dtr_no';
+            select_p :=
+                  select_p
+               || ') order by nlssort(tr_word,'
+               || CHR (39)
+               || 'NLS_SORT=THAI_DICTIONARY'
+               || CHR (39)
+               || '),class_code1,tr_no,dtr_no';
+         ELSIF sel_type_p = 2
+         THEN
+            select2_v :=
+               select2_v || ' order by appid,class_code1,tr_no,dtr_no';
+            select_p := select_p || ') order by class_code1,tr_no,dtr_no';
+         END IF;
+      END IF;
+
+      IF aud_type_p IN (31, 32, 33, 34)
+      THEN
+         IF aud_type_p = 31
+         THEN
+            spec_type_v := 'ราชการ';
+         ELSIF aud_type_p = 32
+         THEN
+            spec_type_v :=
+               'องค์กรระหว่างประเทศ';
+         ELSIF aud_type_p = 33
+         THEN
+            spec_type_v := 'แพร่หลาย';
+         ELSE
+            spec_type_v := 'ภูมิศาสตร์';
+         END IF;
+
+         select_p :=
+               'select '
+            || TO_CHAR (aud_type_p)
+            || ' aud_type,tr_word,class_code,tr_no,dtr_no,owner_name,status_code,sound_flag,three_d_flag,colorgrp_flag,sel_aud,scan_path,scan_file,sound_path,sound_file,class_code1 from ('
+            || 'select '
+            || 'rps.ftrword(spec_no,'
+            || TO_CHAR (aud_type_p)
+            || ') tr_word,'
+            || CHR (39)
+            || spec_type_v
+            || CHR (39)
+            || ' class_code,null tr_no,'
+            || 'spec_no dtr_no,'
+            || 'owner owner_name,status_code,chr(48) sound_flag,'
+            || 'chr(48) three_d_flag,chr(48) colorgrp_flag,exs.fsel_aud('
+            || TO_CHAR (tr_no_p)
+            || ',spec_no,3) sel_aud,'
+            || 'ctl.fscan_file('
+            || TO_CHAR (aud_type_p)
+            || ',spec_no,2) scan_path,ctl.fscan_file('
+            || TO_CHAR (aud_type_p)
+            || ',spec_no,3) scan_file,'
+            || 'null sound_path,null sound_file,'
+            || 'null class_code1 from rpst_special ';
+         select_p := select_p || 'where ' || where_v || ' ';
+
+         IF sel_type_p = 1
+         THEN
+            select2_v :=
+                  select2_v
+               || ' order by appid,mtr_no,nlssort(tr_word,'
+               || CHR (39)
+               || 'NLS_SORT=THAI_DICTIONARY'
+               || CHR (39)
+               || '),class_code1,tr_no,dtr_no';
+            select_p :=
+                  select_p
+               || ') order by nlssort(tr_word,'
+               || CHR (39)
+               || 'NLS_SORT=THAI_DICTIONARY'
+               || CHR (39)
+               || '),class_code1,tr_no,dtr_no';
+         ELSIF sel_type_p = 2
+         THEN
+            select2_v :=
+               select2_v || ' order by appid,mtr_no,class_code1,tr_no,dtr_no';
+            select_p := select_p || ') order by class_code1,tr_no,dtr_no';
+         END IF;
+      END IF;
+
+      /* ดู bug select */
+      BEGIN
+         BEGIN
+            DELETE FROM exst_select
+                  WHERE appid = appid_p;
+         END;
+
+         dbms_output.put_line('before at the end of the method : ' || SUBSTR (select_p,7,INSTR (SUBSTR (select_p, 7), ' order by')));
+         --      begin delete from exst_select where mtr_no = tr_no_p; end;
+         str_v :=
+            'insert into exst_select (appid,mtr_no,aud_type,tr_word,class_code,tr_no,dtr_no,owner_name,status_code,sound_flag,three_d_flag,colorgrp_flag,sel_aud,scan_path,scan_file,sound_path,sound_file,class_code1) ';
+
+         -- Add 2560, MA
+         IF(sel_type_p = 3)
+         THEN
+            str_v :=
+               str_v
+            || 'select '
+            || CHR (39)
+            || appid_p
+            || CHR (39)
+            || ' appid,'
+            || TO_CHAR (tr_no_p)
+            || ','
+            || SUBSTR (select_sel_type_3, 7);
+         ELSE
+            str_v :=
+               str_v
+            || 'select '
+            || CHR (39)
+            || appid_p
+            || CHR (39)
+            || ' appid,'
+            || TO_CHAR (tr_no_p)
+            || ','
+            || SUBSTR (select_p,
+                       7,
+                       INSTR (SUBSTR (select_p, 7), ' order by'));
+         END IF;
+
+         dbms_output.put_line('str_v : ' || str_v);
+
+         BEGIN
+            dbms_output.put_line(str_v);
+            EXECUTE IMMEDIATE str_v;
+         END;
+
+         /* กรณี app ให้ transation support ไม่สามารถ commit */
+         COMMIT;
+      END;
+
+      select_p := select2_v;
+   --userenv('SESSIONID')
+   /* ดู bug select */
+   EXCEPTION
+      WHEN excep
+      THEN
+         NULL;
+      WHEN excep1
+      THEN
+         status_p :=
+               error01
+            || '('
+            || 'tr_no='
+            || TO_CHAR (tr_no_p)
+            || ',aud_type='
+            || TO_CHAR (aud_type_p)
+            || ')';
+      WHEN excep2
+      THEN
+         status_p := error02;
+      WHEN OTHERS
+      THEN
+         status_p := SQLERRM;
+         ROLLBACK;
+   END;
